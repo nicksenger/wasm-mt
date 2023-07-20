@@ -39,9 +39,74 @@ impl Thread {
 
     fn get_worker_content() -> &'static str {
         "
+        let _workers;
+        let initJS;
+
+        function waitForMsgType(target, type) {
+            return new Promise(resolve => {
+                target.addEventListener('message', function onMsg({ data }) {
+                    if (data == null || data.type !== type) return;
+                    target.removeEventListener('message', onMsg);
+                    resolve(data);
+                });
+            });
+        }
+
+        async function start_workers(module, memory, builder) {
+            if (builder.numThreads() === 0) {
+                throw new Error(`num_threads must be > 0.`);
+            }
+        
+            const workerInit = {
+                type: 'wasm_bindgen_worker_init',
+                initJs,
+                module,
+                memory,
+                receiver: builder.receiver()
+            };
+        
+            _workers = await Promise.all(
+                Array.from({ length: builder.numThreads() }, async () => {
+                    let scriptBlob = new Blob(
+                        [
+`function waitForMsgType(target, type) {
+    return new Promise(resolve => {
+        target.addEventListener('message', function onMsg({ data }) {
+            if (data == null || data.type !== type) return;
+            target.removeEventListener('message', onMsg);
+            resolve(data);
+        });
+    });
+}
+
+waitForMsgType(self, 'wasm_bindgen_worker_init').then(async data => {
+    const init = (new Function(data.initJs)).call(null);
+    const wbg = init();
+    const wasm = await wbg(data.module, data.memory);
+    postMessage({ type: 'wasm_bindgen_worker_ready' });
+    wasm.wbg_rayon_start_worker(data.receiver);
+});
+`
+                        ],
+                        { type: 'text/javascript' }
+                    );
+                    let url = URL.createObjectURL(scriptBlob);
+                    const worker = new Worker(url, {
+                        type: 'module'
+                    });
+                    worker.postMessage(workerInit);
+                    await waitForMsgType(worker, 'wasm_bindgen_worker_ready');
+                    URL.revokeObjectURL(url);
+                    return worker;
+                })
+            );
+            builder.build();
+        }
+
+        self.start_workers = start_workers;
+
         const instantiate = async (abInit, abWasm) => {
-            // console.log('abInit:', abInit);
-            const initJs = new TextDecoder().decode(abInit);
+            initJs = new TextDecoder().decode(abInit);
             const init = (new Function(initJs)).call(null);
             const wbg = init();
             const wasm = await wbg(abWasm);
@@ -64,7 +129,7 @@ impl Thread {
 
                     // This overrides `self.onmessage`
                     const _worker = wbg.wmt_bootstrap(self, id);
-                    
+
                     self.wmtContext = { wbg, wasm, _worker };
                     // console.log('bootstrap complete - self.wmtContext:', self.wmtContext);
                 } catch (e) {
