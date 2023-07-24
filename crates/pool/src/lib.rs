@@ -208,6 +208,12 @@ macro_rules! pool_exec_js_async {
 
 pub struct ThreadPool(Rc<ThreadPoolInner>);
 
+impl std::fmt::Debug for ThreadPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ThreadPool")
+    }
+}
+
 impl Drop for ThreadPool {
     fn drop(&mut self) {
         debug_ln!("[drop] ThreadPool::drop(): sc: {}", Rc::strong_count(&self.0));
