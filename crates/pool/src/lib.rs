@@ -164,6 +164,16 @@ impl ThreadPoolInner {
         result
     }
 
+    async fn execute_async_transferable<F, T>(&self, aclos: F) -> ResultJJ where F: MtAsyncClosure<T> {
+        let threads = self.threads.borrow();
+        let pth = self.resolver.resolve_runnable(&threads).await?;
+
+        let result = pth.exec_async_transferable(aclos).await;
+        debug_ln!("pth {} done with result: {:?}", pth.get_id().unwrap(), result);
+        self.resolver.notify_job_complete(pth);
+        result
+    }
+
     async fn execute_js(&self, js: &str, is_async: bool) -> ResultJJ {
         let threads = self.threads.borrow();
         let pth = self.resolver.resolve_runnable(&threads).await?;
@@ -268,6 +278,13 @@ impl ThreadPool {
         let pool_inner = self.0.clone();
         spawn_local(async move {
             cb(pool_inner.execute_async(job).await);
+        });
+    }
+    pub fn exec_async_with_transferable_cb<F, T, G>(&self, job: F, cb: G) where
+    F: MtAsyncClosure<T>, G: PoolCallback {
+        let pool_inner = self.0.clone();
+        spawn_local(async move {
+            cb(pool_inner.execute_async_transferable(job).await);
         });
     }
 

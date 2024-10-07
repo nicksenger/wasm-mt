@@ -1,18 +1,20 @@
+use super::atw::{atw_decode_req_msg, ThreadWorker as AtwThreadWorker};
+use super::decode_task_msg;
+use super::job;
 use crate::debug_ln;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
-use web_sys::{WorkerGlobalScope, MessageEvent};
-use super::atw::{ThreadWorker as AtwThreadWorker, atw_decode_req_msg};
-use super::decode_task_msg;
-use super::job;
+use web_sys::{MessageEvent, WorkerGlobalScope};
 
 #[allow(dead_code)]
 #[wasm_bindgen]
 pub fn wmt_bootstrap(wgs: WorkerGlobalScope, req_id: &str) -> _Worker {
     let worker = _Worker::new(wgs);
-    worker.atw_thw.send_response(req_id, &JsValue::from("bootstrap COMPLETE"), None);
+    worker
+        .atw_thw
+        .send_response(req_id, &JsValue::from("bootstrap COMPLETE"), None);
 
     worker
 }
@@ -58,14 +60,15 @@ impl _Worker {
             "job-clos" | "job-aclos" => {
                 type TypeT = Pin<Box<dyn Future<Output = Result<JsValue, JsValue>>>>;
                 job::Job::<TypeT>::run(jsv, atw_thw, req_id);
-            },
+            }
             "job-js" => job::run_job_js(jsv, atw_thw, req_id, false),
             "job-js-async" => job::run_job_js(jsv, atw_thw, req_id, true),
+            "job-js-async-transferable" => job::run_job_js_transferable(jsv, atw_thw, req_id, true),
             _ => {
                 let msg = format!("unknown task: {}", name);
                 debug_ln!("err: {}", &msg);
                 panic!("{}", msg);
-            },
+            }
         }
     }
 }

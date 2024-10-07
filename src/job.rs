@@ -20,7 +20,19 @@ pub trait MtAsyncClosure<T> = FnOnce() -> T + Serialize + DeserializeOwned + 'st
 fn send_result(result: ResultJJ, atw_thw: Rc<AtwThreadWorker>, req_id: &str) {
     match result {
         // TODO !!!! optimise transferables cases
-        Ok(ref ret) => atw_thw.send_response(req_id, ret, None),
+        Ok(ref ret) => {
+            atw_thw.send_response(req_id, ret, None)
+        },
+        Err(ref ret) => atw_thw.send_error(req_id, ret),
+    }
+}
+
+fn send_result_transferable(result: ResultJJ, atw_thw: Rc<AtwThreadWorker>, req_id: &str) {
+    match result {
+        Ok(ref ret) => {
+            let transfer_list = js_sys::Array::of1(ret);
+            atw_thw.send_response(req_id, ret, Some(&transfer_list))
+        },
         Err(ref ret) => atw_thw.send_error(req_id, ret),
     }
 }
@@ -34,6 +46,18 @@ pub fn run_job_js(jsv: &JsValue, atw_thw: Rc<AtwThreadWorker>, req_id: &str, is_
         });
     } else {
         send_result(utils::run_js(js.as_str()), atw_thw, req_id);
+    }
+}
+
+pub fn run_job_js_transferable(jsv: &JsValue, atw_thw: Rc<AtwThreadWorker>, req_id: &str, is_async: bool) {
+    let js = jsv.as_string().unwrap();
+    if is_async {
+        let req_id = req_id.to_string();
+        spawn_local(async move {
+            send_result_transferable(utils::run_js_async(js.as_str()).await, atw_thw, &req_id);
+        });
+    } else {
+        send_result_transferable(utils::run_js(js.as_str()), atw_thw, req_id);
     }
 }
 
@@ -63,6 +87,20 @@ impl<T> Job<T> where T: Future<Output = ResultJJ> + 'static {
                     spawn_local(async move {
                         let clos: F = bincode::deserialize(&vec).unwrap();
                         send_result(clos().await, atw_thw, &req_id);
+                    });
+                })),
+                _phantom: PhantomData,
+            }).to_ab()
+        } }
+    }
+    pub fn from_aclos_transferable<F>(clos: F) -> ArrayBuffer where F: MtAsyncClosure<T> {
+        let vec: Vec<u8> = bincode::serialize(&clos).unwrap();
+        { #[allow(warnings)] {
+            (Self {
+                clos_fold: Box::new(FnOnce!(move |atw_thw: Rc<AtwThreadWorker>, req_id: String| {
+                    spawn_local(async move {
+                        let clos: F = bincode::deserialize(&vec).unwrap();
+                        send_result_transferable(clos().await, atw_thw, &req_id);
                     });
                 })),
                 _phantom: PhantomData,

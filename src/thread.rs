@@ -201,6 +201,14 @@ waitForMsgType(self, 'wasm_bindgen_worker_init').then(async data => {
         self.atw_th.send_request(&msg, Some(&Array::of1(&ab))).await
     }
 
+    pub async fn exec_async_transferable<F, T>(&self, aclos: F) -> ResultJJ where F: job::MtAsyncClosure<T> {
+        assert!(*self.is_initialized.borrow());
+
+        let ab = job::Job::<T>::from_aclos_transferable(aclos);
+        let msg = encode_task_msg("job-aclos", Some(&ab));
+        self.atw_th.send_request(&msg, Some(&Array::of1(&ab))).await
+    }
+
     pub async fn exec_js(&self, js: &str) -> ResultJJ {
         let msg = encode_task_msg("job-js", Some(&JsValue::from(js)));
         self.atw_th.send_request(&msg, None).await
